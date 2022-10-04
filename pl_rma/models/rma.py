@@ -242,9 +242,9 @@ class RMA(models.Model):
     out_picking_carrier_id = fields.Many2one('delivery.carrier', related='out_picking_id.carrier_id', readonly=False,
                                              string='Out Picking')
 
-    in_carrier_tracking_ref = fields.Char(related='in_picking_id.carrier_tracking_ref')
+    in_carrier_tracking_ref = fields.Char(string='In Carrier Ref', related='in_picking_id.carrier_tracking_ref')
     in_label_url = fields.Char(compute='_compute_in_label_url')
-    out_carrier_tracking_ref = fields.Char(related='out_picking_id.carrier_tracking_ref')
+    out_carrier_tracking_ref = fields.Char(string='Out Carrier Ref', related='out_picking_id.carrier_tracking_ref')
 
 
     def _compute_access_url(self):
