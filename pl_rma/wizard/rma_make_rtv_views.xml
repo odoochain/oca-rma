@@ -34,7 +34,7 @@
         <field name="res_model">rma.make.rtv</field>
         <field name="view_mode">form</field>
         <field name="target">new</field>
-        <field name="binding_model_id" ref="rma.model_rma_rma" />
+        <field name="binding_model_id" ref="pl_rma.model_rma_rma" />
         <field name="binding_view_types">list</field>
     </record>
 

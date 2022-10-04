@@ -237,8 +237,10 @@ class RMA(models.Model):
     in_picking_state = fields.Selection(string='In Picking State', related='in_picking_id.state')
     out_picking_state = fields.Selection(string='Out Picking State', related='out_picking_id.state')
 
-    in_picking_carrier_id = fields.Many2one('delivery.carrier', related='in_picking_id.carrier_id', readonly=False)
-    out_picking_carrier_id = fields.Many2one('delivery.carrier', related='out_picking_id.carrier_id', readonly=False)
+    in_picking_carrier_id = fields.Many2one('delivery.carrier', related='in_picking_id.carrier_id', readonly=False,
+                                            string='In Picking')
+    out_picking_carrier_id = fields.Many2one('delivery.carrier', related='out_picking_id.carrier_id', readonly=False,
+                                             string='Out Picking')
 
     in_carrier_tracking_ref = fields.Char(related='in_picking_id.carrier_tracking_ref')
     in_label_url = fields.Char(compute='_compute_in_label_url')
@@ -559,10 +561,10 @@ class RMA(models.Model):
                 'procure_method': self.template_id.in_procure_method,
                 'to_refund': self.template_id.in_to_refund,
             }
-        
+
     def _get_old_move(self, old_picking, line):
         return old_picking.move_lines.filtered(
-            lambda ol: ol.state == 'done' and 
+            lambda ol: ol.state == 'done' and
                        ol.product_id == line.product_id
         )[0]
 
