@@ -1,7 +1,9 @@
 # Copyright 2020 Tecnativa - Ernesto Tejeda
+# Copyright 2023 Tecnativa - Pedro M. Baeza
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 
 from odoo import api, fields, models
+from odoo.tools import float_compare
 
 
 class Rma(models.Model):
@@ -21,7 +23,10 @@ class Rma(models.Model):
         comodel_name="stock.picking",
         compute="_compute_allowed_picking_ids",
     )
-    picking_id = fields.Many2one(domain="[('id', 'in', allowed_picking_ids)]")
+    picking_id = fields.Many2one(
+        domain="(order_id or partner_id) and [('id', 'in', allowed_picking_ids)] or "
+        "[('state', '=', 'done'), ('picking_type_id.code', '=', 'outgoing')] "
+    )
     allowed_move_ids = fields.Many2many(
         comodel_name="sale.order.line",
         compute="_compute_allowed_move_ids",
@@ -34,18 +39,27 @@ class Rma(models.Model):
         comodel_name="product.product",
         compute="_compute_allowed_product_ids",
     )
-    product_id = fields.Many2one(domain="[('id', 'in', allowed_product_ids)]")
+    product_id = fields.Many2one(
+        domain="order_id and [('id', 'in', allowed_product_ids)] or "
+        "[('type', 'in', ['consu', 'product'])]"
+    )
+    # Add index to this field, as we perform a search on it
+    refund_id = fields.Many2one(index=True)
 
     @api.depends("partner_id", "order_id")
     def _compute_allowed_picking_ids(self):
         domain = [("state", "=", "done"), ("picking_type_id.code", "=", "outgoing")]
         for rec in self:
+            domain2 = domain.copy()
             if rec.partner_id:
                 commercial_partner = rec.partner_id.commercial_partner_id
-                domain.append(("partner_id", "child_of", commercial_partner.id))
+                domain2.append(("partner_id", "child_of", commercial_partner.id))
             if rec.order_id:
-                domain.append(("sale_id", "=", rec.order_id.id))
-            rec.allowed_picking_ids = self.env["stock.picking"].search(domain)
+                domain2.append(("sale_id", "=", rec.order_id.id))
+            if domain2 != domain:
+                rec.allowed_picking_ids = self.env["stock.picking"].search(domain2)
+            else:
+                rec.allowed_picking_ids = False  # don't populate a big list
 
     @api.depends("order_id", "picking_id")
     def _compute_allowed_move_ids(self):
@@ -67,11 +81,7 @@ class Rma(models.Model):
                     lambda r: r.type in ["consu", "product"]
                 ).ids
             else:
-                rec.allowed_product_ids = (
-                    self.env["product.product"]
-                    .search([("type", "in", ["consu", "product"])])
-                    .ids
-                )
+                rec.allowed_product_ids = False  # don't populate a big list
 
     @api.onchange("partner_id")
     def _onchange_partner_id(self):
@@ -82,6 +92,45 @@ class Rma(models.Model):
     @api.onchange("order_id")
     def _onchange_order_id(self):
         self.product_id = self.picking_id = False
+
+    def _link_refund_with_reception_move(self):
+        """Perform the internal operations for linking the RMA reception move with the
+        sales order line if applicable.
+        """
+        self.ensure_one()
+        move = self.reception_move_id
+        if (
+            move
+            and float_compare(
+                self.product_uom_qty,
+                move.product_uom_qty,
+                precision_rounding=move.product_uom.rounding,
+            )
+            == 0
+        ):
+            self.reception_move_id.sale_line_id = self.sale_line_id.id
+            self.reception_move_id.to_refund = True
+
+    def _unlink_refund_with_reception_move(self):
+        """Perform the internal operations for unlinking the RMA reception move with the
+        sales order line.
+        """
+        self.ensure_one()
+        self.reception_move_id.sale_line_id = False
+        self.reception_move_id.to_refund = False
+
+    def action_refund(self):
+        """As we have made a refund, the return move + the refund should be linked to
+        the source sales order line, to decrease both the delivered and invoiced
+        quantity.
+
+        NOTE: The refund line is linked to the SO line in `_prepare_refund_line`.
+        """
+        res = super().action_refund()
+        for rma in self:
+            if rma.sale_line_id:
+                rma._link_refund_with_reception_move()
+        return res
 
     def _prepare_refund(self, invoice_form, origin):
         """Inject salesman from sales order (if any)"""
@@ -104,10 +153,24 @@ class Rma(models.Model):
         return self.sale_line_id.product_id
 
     def _prepare_refund_line(self, line_form):
-        """Add line data"""
+        """Add line data and link to the sales order, only if the RMA is for the whole
+        move quantity. In other cases, incorrect delivered/invoiced quantities will be
+        logged on the sales order, so better to let the operations not linked.
+        """
         res = super()._prepare_refund_line(line_form)
         line = self.sale_line_id
         if line:
             line_form.discount = line.discount
             line_form.sequence = line.sequence
+            move = self.reception_move_id
+            if (
+                move
+                and float_compare(
+                    self.product_uom_qty,
+                    move.product_uom_qty,
+                    precision_rounding=move.product_uom.rounding,
+                )
+                == 0
+            ):
+                line_form.sale_line_ids.add(line)
         return res
