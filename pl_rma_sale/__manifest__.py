@@ -8,7 +8,7 @@
     'license': 'OPL-1',
     'website': 'https://hibou.io/',
     'depends': [
-        'hibou_professional',
+        'pl_base',
         'rma',
         'sale',
         'sales_team',
